@@ -18,6 +18,7 @@ package org.springframework.web.accept;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
@@ -43,8 +44,9 @@ import org.springframework.web.context.request.NativeWebRequest;
  * <p>The method {@link #handleNoMatch} allow subclasses to plug in additional
  * ways of looking up media types (e.g. through the Java Activation framework,
  * or {@link jakarta.servlet.ServletContext#getMimeType}). Media types resolved
- * via base classes are then added to the base class
+ * this way for a plain file extension key are then added to the base class
  * {@link MappingMediaTypeFileExtensionResolver}, i.e. cached for new lookups.
+ * Keys that contain a '.' or a path separator are not added to the base class.
  *
  * @author Rossen Stoyanchev
  * @since 3.2
@@ -118,11 +120,21 @@ public abstract class AbstractMappingContentNegotiationStrategy extends MappingM
 			}
 			mediaType = handleNoMatch(webRequest, key);
 			if (mediaType != null) {
-				addMapping(key, mediaType);
+				if (isPlainExtension(key)) {
+					addMapping(key.toLowerCase(Locale.ROOT), mediaType);
+				}
 				return Collections.singletonList(mediaType);
 			}
 		}
 		return MEDIA_TYPE_ALL_LIST;
+	}
+
+	/**
+	 * Whether the given key is a plain file extension, i.e. it contains
+	 * neither a '.' nor a path separator, and may be registered as a mapping.
+	 */
+	private static boolean isPlainExtension(String key) {
+		return (key.indexOf('.') == -1 && key.indexOf('/') == -1 && key.indexOf('\\') == -1);
 	}
 
 
@@ -144,7 +156,9 @@ public abstract class AbstractMappingContentNegotiationStrategy extends MappingM
 	 * Override to provide handling when a key is not resolved via.
 	 * {@link #lookupMediaType}. Subclasses can take further steps to
 	 * determine the media type(s). If a MediaType is returned from
-	 * this method it will be added to the cache in the base class.
+	 * this method for a plain file extension key, it will be added to the
+	 * cache in the base class. Keys that contain a '.' or a path separator
+	 * are not added to the registered mappings.
 	 */
 	@Nullable
 	protected MediaType handleNoMatch(NativeWebRequest request, String key)

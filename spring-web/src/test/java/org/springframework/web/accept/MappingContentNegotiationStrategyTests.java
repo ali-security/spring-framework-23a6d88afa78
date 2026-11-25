@@ -24,6 +24,8 @@ import org.junit.jupiter.api.Test;
 
 import org.springframework.http.MediaType;
 import org.springframework.web.context.request.NativeWebRequest;
+import org.springframework.web.context.request.ServletWebRequest;
+import org.springframework.web.testfixture.servlet.MockHttpServletRequest;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -77,6 +79,80 @@ class MappingContentNegotiationStrategyTests {
 		assertThat(mediaTypes.get(0).toString()).isEqualTo("application/xml");
 	}
 
+	@Test
+	void resolveMediaTypesHandleNoMatchAddsMappingForPlainExtension() throws Exception {
+		Map<String, MediaType> mapping = Collections.singletonMap("json", MediaType.APPLICATION_JSON);
+		TestMappingContentNegotiationStrategy strategy = new TestMappingContentNegotiationStrategy("xml", mapping);
+
+		assertThat(strategy.resolveMediaTypes(null)).containsExactly(MediaType.APPLICATION_XML);
+		assertThat(strategy.getMediaTypes()).containsOnlyKeys("json", "xml");
+		assertThat(strategy.resolveFileExtensions(MediaType.APPLICATION_XML)).containsExactly("xml");
+	}
+
+	@Test
+	void resolveMediaTypesHandleNoMatchDoesNotAddMappingForInvalidKey() throws Exception {
+		Map<String, MediaType> mapping = Collections.singletonMap("json", MediaType.APPLICATION_JSON);
+		TestMappingContentNegotiationStrategy strategy = new TestMappingContentNegotiationStrategy("a1.xml", mapping);
+
+		assertThat(strategy.resolveMediaTypes(null)).containsExactly(MediaType.APPLICATION_XML);
+		assertThat(strategy.resolveMediaTypeKey(null, "b2.xml")).containsExactly(MediaType.APPLICATION_XML);
+		assertThat(strategy.resolveMediaTypeKey(null, "x/y.xml")).containsExactly(MediaType.APPLICATION_XML);
+		assertThat(strategy.resolveMediaTypeKey(null, "x\\y.xml")).containsExactly(MediaType.APPLICATION_XML);
+		assertThat(strategy.getMediaTypes()).containsOnlyKeys("json");
+		assertThat(strategy.getAllFileExtensions()).containsExactly("json");
+		assertThat(strategy.resolveFileExtensions(MediaType.APPLICATION_XML)).isEmpty();
+	}
+
+	@Test
+	void resolveMediaTypesHandleNoMatchAddsSingleMappingForCaseVariants() throws Exception {
+		Map<String, MediaType> mapping = Collections.singletonMap("json", MediaType.APPLICATION_JSON);
+		TestMappingContentNegotiationStrategy strategy = new TestMappingContentNegotiationStrategy("XML", mapping);
+
+		assertThat(strategy.resolveMediaTypes(null)).containsExactly(MediaType.APPLICATION_XML);
+		assertThat(strategy.resolveMediaTypeKey(null, "Xml")).containsExactly(MediaType.APPLICATION_XML);
+		assertThat(strategy.resolveMediaTypeKey(null, "xMl")).containsExactly(MediaType.APPLICATION_XML);
+		assertThat(strategy.getMediaTypes()).containsOnlyKeys("json", "xml");
+		assertThat(strategy.getAllFileExtensions()).containsExactly("json", "xml");
+		assertThat(strategy.resolveFileExtensions(MediaType.APPLICATION_XML)).containsExactly("xml");
+	}
+
+	@Test
+	void resolveMediaTypesViaParameterDoesNotAddMappingForInvalidKeys() throws Exception {
+		Map<String, MediaType> mapping = Collections.singletonMap("json", MediaType.APPLICATION_JSON);
+		ParameterContentNegotiationStrategy strategy = new ParameterContentNegotiationStrategy(mapping);
+
+		for (int i = 0; i < 100; i++) {
+			assertThat(strategy.resolveMediaTypes(createParameterRequest("a" + i + ".xml")))
+					.containsExactly(MediaType.APPLICATION_XML);
+			assertThat(strategy.resolveMediaTypes(createParameterRequest("x" + i + "/y.pdf")))
+					.containsExactly(MediaType.APPLICATION_PDF);
+		}
+
+		assertThat(strategy.getMediaTypes()).containsOnlyKeys("json");
+		assertThat(strategy.getAllFileExtensions()).containsExactly("json");
+		assertThat(strategy.resolveFileExtensions(MediaType.APPLICATION_XML)).isEmpty();
+		assertThat(strategy.resolveFileExtensions(MediaType.APPLICATION_PDF)).isEmpty();
+	}
+
+	@Test
+	void resolveMediaTypesViaParameterAddsMappingForPlainExtension() throws Exception {
+		Map<String, MediaType> mapping = Collections.singletonMap("json", MediaType.APPLICATION_JSON);
+		ParameterContentNegotiationStrategy strategy = new ParameterContentNegotiationStrategy(mapping);
+
+		assertThat(strategy.resolveMediaTypes(createParameterRequest("xml"))).containsExactly(MediaType.APPLICATION_XML);
+		assertThat(strategy.resolveMediaTypes(createParameterRequest("XML"))).containsExactly(MediaType.APPLICATION_XML);
+		assertThat(strategy.resolveMediaTypes(createParameterRequest("Xml"))).containsExactly(MediaType.APPLICATION_XML);
+
+		assertThat(strategy.getMediaTypes()).containsOnlyKeys("json", "xml");
+		assertThat(strategy.resolveFileExtensions(MediaType.APPLICATION_XML)).containsExactly("xml");
+	}
+
+	private static NativeWebRequest createParameterRequest(String format) {
+		MockHttpServletRequest request = new MockHttpServletRequest();
+		request.addParameter("format", format);
+		return new ServletWebRequest(request);
+	}
+
 
 	private static class TestMappingContentNegotiationStrategy extends AbstractMappingContentNegotiationStrategy {
 
@@ -94,7 +170,7 @@ class MappingContentNegotiationStrategyTests {
 
 		@Override
 		protected MediaType handleNoMatch(NativeWebRequest request, String mappingKey) {
-			return "xml".equals(mappingKey) ? MediaType.APPLICATION_XML : null;
+			return ("xml".equalsIgnoreCase(mappingKey) || mappingKey.endsWith(".xml") ? MediaType.APPLICATION_XML : null);
 		}
 	}
 
